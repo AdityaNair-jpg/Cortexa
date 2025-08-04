@@ -1,3 +1,5 @@
+# backend/core/config.py
+
 from pydantic_settings import BaseSettings
 from pydantic import Field, validator
 from typing import Optional, List

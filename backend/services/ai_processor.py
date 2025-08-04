@@ -1,4 +1,7 @@
+# backend/services/ai_processor.py
+
 import openai
+from openai import OpenAI # Import the OpenAI client
 import pytesseract
 from PIL import Image
 import requests
@@ -19,8 +22,8 @@ from models.database import get_db, User, Conversation, StudySession
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Configure OpenAI
-openai.api_key = settings.openai_api_key
+# Configure OpenAI client
+client = OpenAI(api_key=settings.openai_api_key)
 
 class AIProcessor:
     """
@@ -75,7 +78,7 @@ class AIProcessor:
             
             return {
                 "success": True,
-                "message": f"📸 **Text Extracted from Image:**\n\n{extracted_text}\n\n📚 **Study Analysis:**\n\n{ai_response}",
+                "message": f"萄 **Text Extracted from Image:**\n\n{extracted_text}\n\n答 **Study Analysis:**\n\n{ai_response}",
                 "extracted_text": extracted_text
             }
             
@@ -108,13 +111,13 @@ class AIProcessor:
             try:
                 # Transcribe using OpenAI Whisper
                 with open(temp_audio_path, 'rb') as audio_file:
-                    transcript = openai.Audio.transcribe(
+                    transcript_response = client.audio.transcriptions.create(
                         model=settings.whisper_model,
                         file=audio_file,
                         response_format="text"
                     )
                 
-                transcribed_text = transcript.strip()
+                transcribed_text = transcript_response.strip()
                 
                 if not transcribed_text:
                     return {
@@ -140,7 +143,7 @@ class AIProcessor:
                 
                 return {
                     "success": True,
-                    "message": f"🎵 **Audio Transcription:**\n\n{transcribed_text}\n\n📚 **Study Analysis:**\n\n{ai_response}",
+                    "message": f"七 **Audio Transcription:**\n\n{transcribed_text}\n\n答 **Study Analysis:**\n\n{ai_response}",
                     "transcription": transcribed_text
                 }
                 
@@ -179,7 +182,7 @@ class AIProcessor:
                 {"role": "user", "content": text}
             ]
             
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model=settings.openai_model,
                 messages=messages,
                 max_tokens=500,
@@ -228,7 +231,7 @@ class AIProcessor:
             Keep response concise but helpful for studying.
             """
             
-            response = openai.ChatCompletion.create(
+            response = client.chat.completions.create(
                 model=settings.openai_model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=300,
@@ -286,6 +289,7 @@ class AIProcessor:
                 new_user = User(phone_number=user_phone)
                 db.add(new_user)
                 db.commit()
+                db.refresh(new_user)
                 
             return {"study_level": "general", "subjects": [], "preferred_language": "en"}
             

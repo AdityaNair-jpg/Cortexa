@@ -66,14 +66,14 @@ async def whatsapp_webhook(
             # Handle image files
             if MediaContentType0.startswith('image/'):
                 logger.info("Processing image file")
-                ai_response = await ai_processor.extract_text_from_image(MediaUrl0)
-                response.message(ai_response)
+                ai_response = await ai_processor.extract_text_from_image(MediaUrl0, From)
+                response.message(ai_response['message'])
             
             # Handle audio files
             elif MediaContentType0.startswith('audio/'):
                 logger.info("Processing audio file")
-                ai_response = await ai_processor.transcribe_audio(MediaUrl0)
-                response.message(ai_response)
+                ai_response = await ai_processor.transcribe_audio(MediaUrl0, From)
+                response.message(ai_response['message'])
             
             # Handle other media types
             else:
@@ -86,7 +86,7 @@ async def whatsapp_webhook(
         # Handle text messages
         elif Body:
             logger.info("Processing text message")
-            ai_response = await ai_processor.get_chat_response(Body)
+            ai_response = await ai_processor.get_chat_response(Body, From)
             response.message(ai_response)
         
         # Handle empty messages
@@ -94,10 +94,10 @@ async def whatsapp_webhook(
             logger.warning("Received empty message")
             response.message(
                 "Hi! I'm your AI study assistant. I can help you with:\n\n"
-                "📚 Extract text from images of your notes\n"
-                "🎵 Transcribe your audio recordings\n"
-                "💬 Answer questions about your study materials\n"
-                "📝 Create summaries and practice quizzes\n\n"
+                "答 Extract text from images of your notes\n"
+                "七 Transcribe your audio recordings\n"
+                "町 Answer questions about your study materials\n"
+                "統 Create summaries and practice quizzes\n\n"
                 "Just send me a text message, image, or audio recording to get started!"
             )
         

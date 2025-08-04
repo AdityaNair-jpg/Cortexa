@@ -1,9 +1,14 @@
+# backend/models/database.py
+
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean, Float
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func
 from datetime import datetime
 import json
+
+# Import the settings object
+from core.config import settings
 
 # Database setup
 engine = create_engine(
