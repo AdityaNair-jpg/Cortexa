@@ -36,6 +36,7 @@ async def root():
         "app_name": settings.app_name
     }
 
+
 @app.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
