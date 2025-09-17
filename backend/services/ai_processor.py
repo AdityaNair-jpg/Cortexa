@@ -1,0 +1,133 @@
+# backend/services/ai_processor.py
+
+import google.generativeai as genai
+import pytesseract
+from PIL import Image
+import requests
+from io import BytesIO
+import tempfile
+import os
+import json
+import time
+from typing import Dict, List
+import logging
+
+from core.config import settings
+from models.database import get_db, User, Conversation
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Configure Gemini client
+genai.configure(api_key=settings.gemini_api_key)
+
+class AIProcessor:
+    """
+    AI Processing service with Gemini integration
+    """
+    
+    def __init__(self):
+        self.conversation_context = {}  # In-memory context storage
+
+    def get_chat_response(self, text: str, user_phone: str) -> str:
+        """
+        Generate intelligent chat response using Gemini
+        """
+        try:
+            start_time = time.time()
+            
+            # Get user context (now a sync call)
+            user_context = self._get_user_context(user_phone)
+            
+            # Build conversation history for context (now a sync call)
+            context_messages = self._build_conversation_context(user_phone)
+            
+            # Initialize the Gemini model
+            model = genai.GenerativeModel(settings.gemini_model)
+            chat = model.start_chat(history=context_messages)
+            
+            # Use the synchronous send_message method
+            response = chat.send_message(text)
+            
+            ai_response = response.text
+            processing_time = time.time() - start_time
+            
+            # Store conversation (now a sync call)
+            self._store_conversation(
+                user_phone=user_phone,
+                message_type="text",
+                user_message=text,
+                ai_response=ai_response,
+                processing_time=processing_time
+            )
+            
+            return ai_response
+            
+        except Exception as e:
+            logger.error(f"Error generating chat response: {e}")
+            return "I'm having trouble processing your request right now. Please try again in a moment."
+
+    # --- All helper methods are now synchronous ---
+
+    def _get_user_context(self, user_phone: str) -> Dict:
+        """Get user context from database"""
+        try:
+            db = next(get_db())
+            user = db.query(User).filter(User.phone_number == user_phone).first()
+            
+            if user:
+                subjects = json.loads(user.subjects) if user.subjects else []
+                return {
+                    "study_level": user.study_level or "general",
+                    "subjects": subjects,
+                    "preferred_language": user.preferred_language or "en"
+                }
+            else:
+                new_user = User(phone_number=user_phone)
+                db.add(new_user)
+                db.commit()
+                db.refresh(new_user)
+            return {"study_level": "general", "subjects": [], "preferred_language": "en"}
+            
+        except Exception as e:
+            logger.error(f"Error getting user context: {e}")
+            return {"study_level": "general", "subjects": [], "preferred_language": "en"}
+
+    def _build_conversation_context(self, user_phone: str, limit: int = 5) -> List[Dict]:
+        """Build conversation context for AI"""
+        try:
+            db = next(get_db())
+            recent_conversations = db.query(Conversation)\
+                .filter(Conversation.user_phone == user_phone)\
+                .order_by(Conversation.created_at.desc())\
+                .limit(limit)\
+                .all()
+            
+            context = []
+            for conv in reversed(recent_conversations):
+                if conv.user_message:
+                    # For Gemini, the role for user messages is 'user'
+                    context.append({"role": "user", "parts": [{"text": conv.user_message}]})
+                if conv.ai_response:
+                    # For Gemini, the role for assistant messages is 'model'
+                    context.append({"role": "model", "parts": [{"text": conv.ai_response}]})
+            
+            return context
+            
+        except Exception as e:
+            logger.error(f"Error building conversation context: {e}")
+            return []
+
+    def _store_conversation(self, **kwargs):
+        """Store conversation in database"""
+        try:
+            db = next(get_db())
+            conversation = Conversation(**kwargs)
+            db.add(conversation)
+            db.commit()
+        except Exception as e:
+            logger.error(f"Error storing conversation: {e}")
+
+# Global instance
+ai_processor = AIProcessor()
