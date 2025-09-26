@@ -1,6 +1,6 @@
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-twilio==8.10.0
+twilio==
 python-dotenv==1.0.0
 google-generativeai==0.4.0
 pytesseract==0.3.10
