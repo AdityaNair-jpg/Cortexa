@@ -1,5 +1,3 @@
-# backend/services/ai_processor.py
-
 import google.generativeai as genai
 import pytesseract
 from PIL import Image
@@ -37,23 +35,21 @@ class AIProcessor:
         try:
             start_time = time.time()
             
-            # Get user context (now a sync call)
             user_context = self._get_user_context(user_phone)
-            
-            # Build conversation history for context (now a sync call)
             context_messages = self._build_conversation_context(user_phone)
             
-            # Initialize the Gemini model
+            # The system prompt is now passed as the first message in the history
+            system_prompt = self._create_system_prompt(user_context)
+            full_history = [{"role": "user", "parts": [{"text": system_prompt}]}, {"role": "model", "parts": [{"text": "Understood. I am ready to assist."}]}] + context_messages
+
             model = genai.GenerativeModel(settings.gemini_model)
-            chat = model.start_chat(history=context_messages)
+            chat = model.start_chat(history=full_history)
             
-            # Use the synchronous send_message method
             response = chat.send_message(text)
             
             ai_response = response.text
             processing_time = time.time() - start_time
             
-            # Store conversation (now a sync call)
             self._store_conversation(
                 user_phone=user_phone,
                 message_type="text",
@@ -67,6 +63,7 @@ class AIProcessor:
         except Exception as e:
             logger.error(f"Error generating chat response: {e}")
             return "I'm having trouble processing your request right now. Please try again in a moment."
+
 
     # --- All helper methods are now synchronous ---
 
