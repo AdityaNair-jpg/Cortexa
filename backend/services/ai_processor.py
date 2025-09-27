@@ -135,10 +135,10 @@ class AIProcessor:
             context = []
             for conv in reversed(recent_conversations):
                 if conv.user_message:
-                    # For Gemini, the role for user messages is 'user'
+                    # For Gemini, the role for user(s) messages is 'user'
                     context.append({"role": "user", "parts": [{"text": conv.user_message}]})
                 if conv.ai_response:
-                    # For Gemini, the role for assistant messages is 'model'
+                    # For Gemini, the role for assistant(s) messages is 'model'
                     context.append({"role": "model", "parts": [{"text": conv.ai_response}]})
             
             return context
