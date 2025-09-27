@@ -64,7 +64,38 @@ class AIProcessor:
             logger.error(f"Error generating chat response: {e}")
             return "I'm having trouble processing your request right now. Please try again in a moment."
 
+    def _generate_study_response(self, content: str, analysis_type: str, user_phone: str) -> str:
+        """
+        Generate study-focused AI response for extracted content
+        """
+        try:
+            user_context = self._get_user_context(user_phone)
+            model = genai.GenerativeModel(settings.gemini_model)
+            
+            # --- REFINED PROMPT ---
+            prompt = f"""
+            **Role**: You are an expert AI Study Assistant.
+            **Task**: Analyze the following content and provide a structured, helpful study guide.
+            **User Profile**: The user is a {user_context.get('study_level', 'student')} studying {user_context.get('subjects', ['general topics'])}. Tailor your language and examples accordingly.
 
+            **Content for Analysis**:
+            ---
+            {content}
+            ---
+
+            **Instructions**:
+            Based on the content, generate the following sections. Use markdown for formatting (e.g., #, **, *, -).
+
+            1.  **Key Concepts (🔑)**: Identify and explain the 3-5 most important concepts. For each concept, provide a concise definition and explain *why* it is important.
+            2.  **Potential Pitfalls (🤔)**: What are some common misunderstandings or tricky points related to this material?
+            3.  **Analogies & Examples (💡)**: Provide at least one simple analogy or real-world example to make the core ideas easier to understand.
+            4.  **Practice Question (✍️)**: Create one open-ended question that would test a deep understanding of this material. Do not provide the answer.
+            """
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            logger.error(f"Error generating study response: {e}")
+            return "Here's the extracted content. I can help you study this material - just ask me questions about it!"
     # --- All helper methods are now synchronous ---
 
     def _get_user_context(self, user_phone: str) -> Dict:
