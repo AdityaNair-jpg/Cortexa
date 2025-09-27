@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     twilio_auth_token: str = Field(..., env="TWILIO_AUTH_TOKEN")
     twilio_phone_number: str = Field(..., env="TWILIO_PHONE_NUMBER")
     
-    # OpenAI Configuration
+    # Gemini Configuration
     gemini_api_key: str = Field(..., env="GEMINI_API_KEY")
     gemini_model: str = "gemini-2.5-flash"
     whisper_model: str = "whisper-1"
