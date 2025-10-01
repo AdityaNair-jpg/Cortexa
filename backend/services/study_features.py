@@ -10,6 +10,7 @@ from core.config import settings
 genai.configure(api_key=settings.gemini_api_key)
 
 class StudyFeatures:
+    
     """
     Advanced study features like quizzes, summaries, and progress tracking
     """
