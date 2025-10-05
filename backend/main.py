@@ -6,7 +6,6 @@ import logging
 from typing import Optional
 import uvicorn
 
-
 # Import our custom modules
 from core.config import settings
 from services.ai_processor import ai_processor
