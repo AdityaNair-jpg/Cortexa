@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Configure Gemini client
 genai.configure(api_key=settings.gemini_api_key)
 
+# Main Class
 class AIProcessor:
     """
     AI Processing service with Gemini integration
