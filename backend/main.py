@@ -10,7 +10,6 @@ import uvicorn
 from core.config import settings
 from services.ai_processor import ai_processor
 
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
