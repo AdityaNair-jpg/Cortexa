@@ -6,7 +6,6 @@ import logging
 from typing import Optional
 import uvicorn
 
-
 # Import our custom modules
 from core.config import settings
 from services.ai_processor import ai_processor
@@ -96,10 +95,10 @@ async def whatsapp_webhook(
             logger.warning("Received empty message")
             response.message(
                 "Hi! I'm your AI study assistant. I can help you with:\n\n"
-                "答 Extract text from images of your notes\n"
-                "七 Transcribe your audio recordings\n"
-                "町 Answer questions about your study materials\n"
-                "統 Create summaries and practice quizzes\n\n"
+                "Extract text from images of your notes\n"
+                "Transcribe your audio recordings\n"
+                "Answer questions about your study materials\n"
+                "Create summaries and practice quizzes\n\n"
                 "Just send me a text message, image, or audio recording to get started!"
             )
         

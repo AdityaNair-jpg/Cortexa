@@ -10,6 +10,7 @@ from core.config import settings
 genai.configure(api_key=settings.gemini_api_key)
 
 class StudyFeatures:
+    
     """
     Advanced study features like quizzes, summaries, and progress tracking
     """
@@ -37,7 +38,7 @@ class StudyFeatures:
             }}
             """
             
-            response = model.generate_content_async(prompt)
+            response = model.generate_content(prompt)
             # Clean up the response to make sure it's valid JSON
             quiz_data = json.loads(response.text.replace("```json", "").replace("```", ""))
             
@@ -64,7 +65,7 @@ class StudyFeatures:
                 "message": f"Error creating quiz: {str(e)}"
             }
     
-    async def create_summary(self, user_phone: str, content: str) -> str:
+    def create_summary(self, user_phone: str, content: str) -> str:
         """Create a comprehensive summary of study material"""
         try:
             model = genai.GenerativeModel(settings.gemini_model)
@@ -83,7 +84,7 @@ class StudyFeatures:
             Format with clear headings and bullet points.
             """
             
-            response = model.generate_content_async(prompt)
+            response = model.generate_content(prompt)
             
             summary = response.text
             
@@ -103,7 +104,7 @@ class StudyFeatures:
         except Exception as e:
             return f"Error creating summary: {str(e)}"
     
-    async def get_study_progress(self, user_phone: str, days: int = 7) -> Dict:
+    def get_study_progress(self, user_phone: str, days: int = 7) -> Dict:
         """Get user's study progress over specified days"""
         try:
             db = next(get_db())
@@ -143,7 +144,7 @@ class StudyFeatures:
         except Exception as e:
             return {"error": f"Error getting progress: {str(e)}"}
     
-    async def _calculate_study_streak(self, user_phone: str) -> int:
+    def _calculate_study_streak(self, user_phone: str) -> int:
         """Calculate consecutive days of study activity"""
         try:
             db = next(get_db())

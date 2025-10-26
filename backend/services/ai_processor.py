@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Configure Gemini client
 genai.configure(api_key=settings.gemini_api_key)
 
+# Main Class
 class AIProcessor:
     """
     AI Processing service with Gemini integration
@@ -64,6 +65,66 @@ class AIProcessor:
             logger.error(f"Error generating chat response: {e}")
             return "I'm having trouble processing your request right now. Please try again in a moment."
 
+    def extract_text_from_image(self, media_url: str, user_phone: str) -> Dict:
+        """
+        Download an image, extract text using Tesseract OCR, and get a study response.
+        """
+        try:
+            # Download the image from the Twilio URL
+            response = requests.get(media_url)
+            response.raise_for_status() # Raise an exception for bad status codes
+            
+            # Open the image and perform OCR
+            image = Image.open(BytesIO(response.content))
+            extracted_text = pytesseract.image_to_string(image)
+            
+            if not extracted_text.strip():
+                return {"message": "I couldn't find any text in the image you sent. Please try taking a clearer picture! 📸"}
+
+            # Store the extracted content
+            self._store_conversation(
+                user_phone=user_phone,
+                message_type="image",
+                media_url=media_url,
+                extracted_content=extracted_text
+            )
+
+            # Get a helpful study response based on the text
+            study_response = self._generate_study_response(extracted_text, "note_review", user_phone)
+            
+            return {"message": study_response}
+
+        except Exception as e:
+            logger.error(f"Error processing image: {e}")
+            return {"message": "I had trouble reading that image. Please make sure it's a clear photo and try again."}
+
+    def transcribe_audio(self, media_url: str, user_phone: str) -> Dict:
+        """
+        Download an audio file and transcribe it.
+        (This is a placeholder - you'll need a speech-to-text library like Whisper or SpeechRecognition)
+        """
+        try:
+            # This part is a placeholder. You would need to integrate a speech-to-text service.
+            # For now, we'll simulate a transcription.
+            transcribed_text = "This is a placeholder for the transcribed audio. Please replace with a real transcription service."
+
+            # Store the conversation
+            self._store_conversation(
+                user_phone=user_phone,
+                message_type="audio",
+                media_url=media_url,
+                extracted_content=transcribed_text
+            )
+
+            # Generate a helpful study response
+            study_response = self._generate_study_response(transcribed_text, "audio_review", user_phone)
+            
+            return {"message": study_response}
+
+        except Exception as e:
+            logger.error(f"Error processing audio: {e}")
+            return {"message": "I'm sorry, I had trouble processing that audio file. Please try recording again."}
+    
     def _generate_study_response(self, content: str, analysis_type: str, user_phone: str) -> str:
         """
         Generate study-focused AI response for extracted content
@@ -160,7 +221,7 @@ class AIProcessor:
 
         **User Profile**:
         - Study Level: {user_context.get('study_level', 'general')}
-        - Subjects of Interest: {user_context.get('subjects', 'various')}
+        - Subjects of Interest: {", ".join(user_context.get('subjects', ['various']))}
 
         **Core Capabilities**:
         - Analyze text from images and audio.
