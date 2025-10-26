@@ -1,10 +1,12 @@
 from fastapi import FastAPI, Form, Request, HTTPException
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from twilio.twiml.messaging_response import MessagingResponse
 from twilio.rest import Client
 import logging
 from typing import Optional
 import uvicorn
+import os
 
 # Import our custom modules
 from core.config import settings
@@ -20,6 +22,13 @@ app = FastAPI(
     description="WhatsApp-based AI Study Assistant Backend",
     version="1.0.0"
 )
+
+# Create static directory if it doesn't exist
+static_dir = "static"
+os.makedirs(static_dir, exist_ok=True)
+
+# Mount the static directory to serve files
+app.mount(f"/{static_dir}", StaticFiles(directory=static_dir), name=static_dir)
 
 # Initialize Twilio client
 twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
@@ -68,7 +77,17 @@ async def whatsapp_webhook(
             if MediaContentType0.startswith('image/'):
                 logger.info("Processing image file")
                 ai_response = ai_processor.extract_text_from_image(MediaUrl0, From)
-                response.message(ai_response['message'])
+                
+                if ai_response.get("pdf_path"):
+                    # Construct the full, public URL for the PDF
+                    # request.base_url gives you https://<your-ngrok-url>/
+                    pdf_url = f"{str(request.base_url)}{ai_response['pdf_path']}"
+                    
+                    response.message(ai_response['message'])
+                    response.message(pdf_url) # Send the link as a separate message
+                else:
+                    # Send the error message if PDF generation failed
+                    response.message(ai_response['message'])
             
             # Handle audio files
             elif MediaContentType0.startswith('audio/'):

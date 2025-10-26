@@ -9,7 +9,7 @@ import json
 import time
 from typing import Dict, List
 import logging
-
+from services.pdf_generator import pdf_generator
 from core.config import settings
 from models.database import get_db, User, Conversation
 
@@ -91,6 +91,17 @@ class AIProcessor:
 
             # Get a helpful study response based on the text
             study_response = self._generate_study_response(extracted_text, "note_review", user_phone)
+
+            pdf_path = pdf_generator(study_response_text, user_phone)
+            
+            if pdf_path:
+                return {
+                    "message": "I've processed your notes and generated a PDF summary for you! 📝",
+                    "pdf_path": pdf_path  # e.g., "static/filename.pdf"
+                }
+            else:
+                return {"message": "I extracted the text but failed to generate a PDF. Please try again."}
+            # --- END OF MODIFICATION ---
             
             return {"message": study_response}
 
