@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     
     # Gemini Configuration
     gemini_api_key: str = Field(..., env="GEMINI_API_KEY")
-    gemini_model: str = "gemini-1.5-flash"
+    gemini_model: str = "gemini-pro"
     
     # Database
     database_url: str = Field("sqlite:///./study_assistant.db", env="DATABASE_URL")

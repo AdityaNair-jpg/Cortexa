@@ -70,8 +70,11 @@ class AIProcessor:
         Download an image, extract text using Tesseract OCR, and get a study response.
         """
         try:
-            # Download the image from the Twilio URL
-            response = requests.get(media_url)
+            # Download the image from the Twilio URL with authentication
+            response = requests.get(
+                media_url, 
+                auth=(settings.twilio_account_sid, settings.twilio_auth_token)
+            )
             response.raise_for_status() # Raise an exception for bad status codes
             
             # Open the image and perform OCR
@@ -92,7 +95,7 @@ class AIProcessor:
             # Get a helpful study response based on the text
             study_response = self._generate_study_response(extracted_text, "note_review", user_phone)
 
-            pdf_path = pdf_generator(study_response_text, user_phone)
+            pdf_path = pdf_generator(study_response, user_phone)
             
             if pdf_path:
                 return {
@@ -101,10 +104,7 @@ class AIProcessor:
                 }
             else:
                 return {"message": "I extracted the text but failed to generate a PDF. Please try again."}
-            # --- END OF MODIFICATION ---
             
-            return {"message": study_response}
-
         except Exception as e:
             logger.error(f"Error processing image: {e}")
             return {"message": "I had trouble reading that image. Please make sure it's a clear photo and try again."}

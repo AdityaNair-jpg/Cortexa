@@ -58,7 +58,7 @@ def create_pdf_from_text(summary_text: str, user_phone: str) -> str:
         logger.info(f"Generated PDF: {filepath}")
         
         # Return the web-accessible path
-        return filepath
+        return f"static/{filename}"
 
     except Exception as e:
         logger.error(f"Error generating PDF: {e}")
