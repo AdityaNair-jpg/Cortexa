@@ -7,7 +7,6 @@ from sqlalchemy.sql import func
 from datetime import datetime
 import json
 
-
 # Import the settings object
 from core.config import settings
 
