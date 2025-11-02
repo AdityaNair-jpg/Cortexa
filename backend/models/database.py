@@ -58,6 +58,7 @@ class Conversation(Base):
     tokens_used = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
 class StudySession(Base):
     """Study session tracking"""
     __tablename__ = "study_sessions"
@@ -73,8 +74,10 @@ class StudySession(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     completed_at = Column(DateTime(timezone=True))
 
+
 # Create tables
 Base.metadata.create_all(bind=engine)
+
 
 # Dependency to get database session
 def get_db():
