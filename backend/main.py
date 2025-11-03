@@ -80,11 +80,14 @@ async def whatsapp_webhook(
                 
                 if ai_response.get("pdf_path"):
                     # Construct the full, public URL for the PDF
-                    # request.base_url gives you https://<your-ngrok-url>/
-                    pdf_url = f"{str(request.base_url)}{ai_response['pdf_path']}"
+                    pdf_url = f"{str(request.base_url).rstrip('/')}/{ai_response['pdf_path']}"
                     
-                    response.message(ai_response['message'])
-                    response.message(pdf_url) # Send the link as a separate message
+                    # Send both the message and PDF link
+                    message = response.message()
+                    message.body(ai_response['message'])
+                    message.media(pdf_url)
+                    
+                    logger.info(f"Sending PDF URL: {pdf_url}")
                 else:
                     # Send the error message if PDF generation failed
                     response.message(ai_response['message'])
@@ -114,15 +117,16 @@ async def whatsapp_webhook(
             logger.warning("Received empty message")
             response.message(
                 "Hi! I'm your AI study assistant. I can help you with:\n\n"
-                "Extract text from images of your notes\n"
-                "Transcribe your audio recordings\n"
-                "Answer questions about your study materials\n"
-                "Create summaries and practice quizzes\n\n"
+                "- Extract text from images of your notes\n"
+                "- Transcribe your audio recordings\n"
+                "- Answer questions about your study materials\n"
+                "- Create summaries and practice quizzes\n\n"
                 "Just send me a text message, image, or audio recording to get started!"
             )
         
         # Log the response
         logger.info("Sending TwiML response back to Twilio")
+        logger.info(f"TwiML Response: {str(response)}")
         
         # Return TwiML response
         return Response(
@@ -131,7 +135,7 @@ async def whatsapp_webhook(
         )
         
     except Exception as e:
-        logger.error(f"Error processing WhatsApp message: {e}")
+        logger.error(f"Error processing WhatsApp message: {e}", exc_info=True)
         
         # Send error message to user
         error_response = MessagingResponse()
