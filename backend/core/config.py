@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     
     # Gemini Configuration
     gemini_api_key: str = Field(..., env="GEMINI_API_KEY")
-    gemini_model: str = "gemini-pro"
+    gemini_model: str = "gemini-2.5-pro"
     
     # Database
     database_url: str = Field("sqlite:///./study_assistant.db", env="DATABASE_URL")
@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # File Storage
     max_file_size_mb: int = Field(10, env="MAX_FILE_SIZE_MB")
     upload_folder: str = Field("./uploads", env="UPLOAD_FOLDER")
+    
+    # Public URL for serving files (needed for Twilio media URLs)
+    # Set this to your public URL (e.g., ngrok URL in development, or your domain in production)
+    public_base_url: Optional[str] = Field(None, env="PUBLIC_BASE_URL")
     
     # AI Settings
     max_context_length: int = 4000

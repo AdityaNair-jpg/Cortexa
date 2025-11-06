@@ -7,7 +7,8 @@ import tempfile
 import os
 import json
 import time
-from typing import Dict, List
+import re
+from typing import Dict, List, Optional
 import logging
 from services.pdf_generator import pdf_generator
 from core.config import settings
@@ -32,42 +33,67 @@ class AIProcessor:
     def get_chat_response(self, text: str, user_phone: str) -> str:
         """
         Generate intelligent chat response using Gemini
+        Includes retry logic for rate limits
         """
-        try:
-            start_time = time.time()
-            
-            user_context = self._get_user_context(user_phone)
-            context_messages = self._build_conversation_context(user_phone)
-            
-            # The system prompt is now passed as the first message in the history
-            system_prompt = self._create_system_prompt(user_context)
-            full_history = [{"role": "user", "parts": [{"text": system_prompt}]}, {"role": "model", "parts": [{"text": "Understood. I am ready to assist."}]}] + context_messages
+        max_retries = 2
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                start_time = time.time()
+                
+                user_context = self._get_user_context(user_phone)
+                context_messages = self._build_conversation_context(user_phone)
+                
+                # The system prompt is now passed as the first message in the history
+                system_prompt = self._create_system_prompt(user_context)
+                full_history = [{"role": "user", "parts": [{"text": system_prompt}]}, {"role": "model", "parts": [{"text": "Understood. I am ready to assist."}]}] + context_messages
 
-            model = genai.GenerativeModel(settings.gemini_model)
-            chat = model.start_chat(history=full_history)
-            
-            response = chat.send_message(text)
-            
-            ai_response = response.text
-            processing_time = time.time() - start_time
-            
-            self._store_conversation(
-                user_phone=user_phone,
-                message_type="text",
-                user_message=text,
-                ai_response=ai_response,
-                processing_time=processing_time
-            )
-            
-            return ai_response
-            
-        except Exception as e:
-            logger.error(f"Error generating chat response: {e}")
-            return "I'm having trouble processing your request right now. Please try again in a moment."
+                model = genai.GenerativeModel(settings.gemini_model)
+                chat = model.start_chat(history=full_history)
+                
+                response = chat.send_message(text)
+                
+                ai_response = response.text
+                processing_time = time.time() - start_time
+                
+                self._store_conversation(
+                    user_phone=user_phone,
+                    message_type="text",
+                    user_message=text,
+                    ai_response=ai_response,
+                    processing_time=processing_time
+                )
+                
+                return ai_response
+                
+            except Exception as e:
+                error_str = str(e)
+                
+                # Check if it's a rate limit error
+                if ("429" in error_str or "quota" in error_str.lower() or "rate limit" in error_str.lower()) and attempt < max_retries - 1:
+                    retry_seconds = retry_delay * (2 ** attempt)
+                    
+                    # Try to extract retry delay from error message
+                    retry_match = re.search(r'retry.*?(\d+)', error_str, re.IGNORECASE)
+                    if retry_match:
+                        retry_seconds = int(retry_match.group(1)) + 1
+                    
+                    logger.warning(f"Rate limit hit in chat, retrying in {retry_seconds} seconds (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(retry_seconds)
+                    continue
+                else:
+                    logger.error(f"Error generating chat response: {e}")
+                    if "429" in error_str or "quota" in error_str.lower():
+                        return "I'm currently experiencing high demand. Please wait a moment and try again. The free tier has rate limits, so I may need a few seconds between requests. ⏱️"
+                    return "I'm having trouble processing your request right now. Please try again in a moment."
+        
+        return "I'm currently experiencing high demand. Please wait a moment and try again. ⏱️"
 
-    def extract_text_from_image(self, media_url: str, user_phone: str) -> Dict:
+    def extract_text_from_image(self, media_url: str, user_phone: str, image_urls: Optional[List[str]] = None) -> Dict:
         """
         Download an image, extract text using Tesseract OCR, and get a study response.
+        Supports multiple images.
         """
         try:
             # Download the image from the Twilio URL with authentication
@@ -81,25 +107,58 @@ class AIProcessor:
             image = Image.open(BytesIO(response.content))
             extracted_text = pytesseract.image_to_string(image)
             
-            if not extracted_text.strip():
-                return {"message": "I couldn't find any text in the image you sent. Please try taking a clearer picture! 📸"}
+            # Collect all extracted texts if multiple images
+            all_extracted_texts = [extracted_text] if extracted_text.strip() else []
+            
+            # Process additional images if provided
+            if image_urls:
+                for img_url in image_urls:
+                    try:
+                        img_response = requests.get(
+                            img_url,
+                            auth=(settings.twilio_account_sid, settings.twilio_auth_token)
+                        )
+                        img_response.raise_for_status()
+                        img = Image.open(BytesIO(img_response.content))
+                        img_text = pytesseract.image_to_string(img)
+                        if img_text.strip():
+                            all_extracted_texts.append(img_text)
+                    except Exception as e:
+                        logger.warning(f"Error processing additional image {img_url}: {e}")
+            
+            # Combine all extracted texts
+            combined_text = "\n\n---\n\n".join(all_extracted_texts)
+            
+            if not combined_text.strip():
+                return {"message": "I couldn't find any text in the image(s) you sent. Please try taking clearer pictures! 📸"}
 
             # Store the extracted content
             self._store_conversation(
                 user_phone=user_phone,
                 message_type="image",
                 media_url=media_url,
-                extracted_content=extracted_text
+                extracted_content=combined_text
             )
 
-            # Get a helpful study response based on the text
-            study_response = self._generate_study_response(extracted_text, "note_review", user_phone)
+            # Get a helpful study response based on the text (concise and visual)
+            study_response = self._generate_concise_study_response(combined_text, user_phone)
 
-            pdf_path = pdf_generator(study_response, user_phone)
+            # Collect all image URLs for PDF
+            all_image_urls = [media_url]
+            if image_urls:
+                all_image_urls.extend(image_urls)
+
+            # Generate PDF with multiple images
+            pdf_path = pdf_generator.create_pdf_from_content(
+                study_response, 
+                user_phone,
+                image_urls=all_image_urls,
+                extracted_texts=all_extracted_texts
+            )
             
             if pdf_path:
                 return {
-                    "message": "I've processed your notes and generated a PDF summary for you! 📝",
+                    "message": "I've processed your notes and generated a visual PDF summary with mind maps! 📝🗺️",
                     "pdf_path": pdf_path  # e.g., "static/filename.pdf"
                 }
             else:
@@ -168,6 +227,144 @@ class AIProcessor:
         except Exception as e:
             logger.error(f"Error generating study response: {e}")
             return "Here's the extracted content. I can help you study this material - just ask me questions about it!"
+    
+    def _generate_concise_study_response(self, content: str, user_phone: str) -> str:
+        """
+        Generate concise, visual study notes optimized for fast memorization
+        Includes retry logic for rate limits
+        """
+        max_retries = 3
+        retry_delay = 2  # Start with 2 seconds
+        
+        for attempt in range(max_retries):
+            try:
+                user_context = self._get_user_context(user_phone)
+                model = genai.GenerativeModel(settings.gemini_model)
+                
+                prompt = f"""
+                **Role**: You are an expert AI Study Assistant specializing in creating concise, memorable study notes.
+                **Task**: Transform the following content into SHORT, VISUAL study notes optimized for quick memorization.
+                **User Profile**: {user_context.get('study_level', 'student')} studying {user_context.get('subjects', ['general topics'])}.
+
+                **Content**:
+                ---
+                {content[:3000]}  # Limit content length
+                ---
+
+                **CRITICAL INSTRUCTIONS**:
+                1. **Be EXTREMELY CONCISE** - Each point should be 1-2 lines maximum. No long paragraphs.
+                2. **Use Visual Markers** - Use emojis, symbols, and formatting to make it scannable.
+                3. **Structure with Headings** - Use ## for main sections, ### for subsections.
+                4. **Key Concepts First** - List 3-5 key concepts with VERY brief definitions (one line each).
+                5. **Bullet Points Only** - Use bullet points, not paragraphs. Each bullet = one fact to remember.
+                6. **Memory Aids** - Include mnemonics, acronyms, or memory tricks where helpful.
+                7. **Visual Hierarchy** - Use formatting to create visual hierarchy (bold for important terms).
+
+                **Format**:
+                ## 🔑 Key Concepts
+                - **Concept 1**: One-line definition
+                - **Concept 2**: One-line definition
+                - **Concept 3**: One-line definition
+
+                ## 📝 Important Points
+                - Point 1 (max 2 lines)
+                - Point 2 (max 2 lines)
+                - Point 3 (max 2 lines)
+
+                ## 💡 Quick Facts
+                - Fact 1
+                - Fact 2
+                - Fact 3
+
+                ## 🧠 Memory Tips
+                - Tip 1
+                - Tip 2
+
+                Keep the ENTIRE response under 500 words. Focus on what's essential to remember.
+                """
+                response = model.generate_content(prompt)
+                return response.text
+                
+            except Exception as e:
+                error_str = str(e)
+                
+                # Check if it's a rate limit error (429)
+                if "429" in error_str or "quota" in error_str.lower() or "rate limit" in error_str.lower():
+                    # Extract retry delay from error if available
+                    retry_seconds = retry_delay * (2 ** attempt)  # Exponential backoff
+                    
+                    # Try to extract retry delay from error message
+                    retry_match = re.search(r'retry.*?(\d+)', error_str, re.IGNORECASE)
+                    if retry_match:
+                        retry_seconds = int(retry_match.group(1)) + 1
+                    
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Rate limit hit, retrying in {retry_seconds} seconds (attempt {attempt + 1}/{max_retries})")
+                        time.sleep(retry_seconds)
+                        continue
+                    else:
+                        logger.error(f"Rate limit exceeded after {max_retries} attempts. Using fallback content.")
+                        # Return a better fallback that still creates a useful PDF
+                        return self._create_fallback_study_notes(content)
+                else:
+                    # For other errors, log and return fallback
+                    logger.error(f"Error generating concise study response (attempt {attempt + 1}): {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        return self._create_fallback_study_notes(content)
+        
+        # Final fallback
+        return self._create_fallback_study_notes(content)
+    
+    def _create_fallback_study_notes(self, content: str) -> str:
+        """
+        Create basic study notes from content when AI is unavailable
+        """
+        # Extract key information from content using simple text processing
+        lines = content.split('\n')
+        key_lines = [line.strip() for line in lines if line.strip() and len(line.strip()) > 20]
+        
+        # Take first 20 meaningful lines
+        key_content = '\n'.join(key_lines[:20])
+        
+        # Create a simple structured format
+        fallback = f"""## 📝 Study Notes
+
+## 🔑 Key Points
+{self._extract_simple_key_points(content)}
+
+## 📄 Content Summary
+{key_content[:800]}
+
+---
+*Note: This is a basic summary. For enhanced AI-generated notes, please try again in a moment.*
+"""
+        return fallback
+    
+    def _extract_simple_key_points(self, content: str, max_points: int = 5) -> str:
+        """Extract simple key points from content"""
+        # Find sentences that might be important (contain keywords, are questions, etc.)
+        sentences = re.split(r'[.!?]\s+', content)
+        key_sentences = []
+        
+        important_keywords = ['important', 'key', 'main', 'primary', 'essential', 'critical', 'note', 'remember']
+        
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) > 30 and len(sentence) < 150:
+                # Check if sentence contains important keywords or starts with capital (likely a concept)
+                if any(keyword in sentence.lower() for keyword in important_keywords) or sentence[0].isupper():
+                    key_sentences.append(f"- {sentence}")
+                    if len(key_sentences) >= max_points:
+                        break
+        
+        if not key_sentences:
+            # Fallback: just take first few sentences
+            key_sentences = [f"- {s.strip()}" for s in sentences[:max_points] if len(s.strip()) > 20]
+        
+        return '\n'.join(key_sentences[:max_points])
     # --- All helper methods are now synchronous ---
 
     def _get_user_context(self, user_phone: str) -> Dict:
@@ -221,28 +418,34 @@ class AIProcessor:
         
     def _create_system_prompt(self, user_context: Dict) -> str:
         """Create personalized system prompt to define the AI's persona and instructions."""
-        # --- NEW & IMPROVED SYSTEM PROMPT ---
+        # --- ENHANCED SYSTEM PROMPT - Now handles general questions too ---
         return f"""
-        You are Cortexa, a friendly and highly effective AI study assistant. Your goal is to help students understand complex topics, not just give them answers.
+        You are Cortexa, a friendly and highly effective AI assistant. While you specialize in study assistance, you can also answer general questions on any topic.
 
         **Your Persona**:
         - **Encouraging & Patient**: Always be supportive. Use emojis to convey a friendly tone (e.g., 🤔, 💡, ✅).
-        - **Socratic Teacher**: When a user asks a question, guide them toward the answer instead of just stating it. Ask clarifying questions.
+        - **Socratic Teacher**: When a user asks a question, guide them toward the answer instead of just stating it. Ask clarifying questions when helpful.
         - **Structured**: Present information clearly using markdown, bullet points, and bold text.
+        - **Versatile**: You can answer questions about ANY topic - science, history, technology, general knowledge, etc.
 
         **User Profile**:
         - Study Level: {user_context.get('study_level', 'general')}
         - Subjects of Interest: {", ".join(user_context.get('subjects', ['various']))}
 
         **Core Capabilities**:
-        - Analyze text from images and audio.
-        - Create summaries, quizzes, and study guides.
-        - Answer specific questions by providing explanations and examples.
+        - Answer questions on ANY topic (not just study-related)
+        - Analyze text from images and audio
+        - Create summaries, quizzes, and study guides
+        - Provide explanations and examples for any subject
+        - Help with general knowledge, problem-solving, and learning
 
         **Rules**:
-        - NEVER just give the answer to a question without explanation.
-        - Keep responses concise and focused on the user's request.
-        - If you don't know something, say so. Do not make up information.
+        - Answer questions directly and helpfully, whether they're study-related or general
+        - Provide clear explanations with examples when helpful
+        - Keep responses concise and focused on the user's request
+        - If you don't know something, say so. Do not make up information
+        - For study questions, use the Socratic method when appropriate
+        - For general questions, provide accurate, helpful information
         """
 
     def _store_conversation(self, **kwargs):

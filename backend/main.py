@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Form, Request, HTTPException
+from fastapi import FastAPI, Form, Request, HTTPException, BackgroundTasks
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from twilio.twiml.messaging_response import MessagingResponse
@@ -33,6 +33,51 @@ app.mount(f"/{static_dir}", StaticFiles(directory=static_dir), name=static_dir)
 # Initialize Twilio client
 twilio_client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
+def send_pdf_via_twilio(to_phone: str, from_phone: str, pdf_path: str, base_url: str):
+    """
+    Send PDF file via Twilio WhatsApp API
+    This runs as a background task after the webhook response
+    """
+    try:
+        # Use public_base_url from settings if available, otherwise use request base_url
+        if settings.public_base_url:
+            base_url_str = settings.public_base_url.rstrip('/')
+        else:
+            base_url_str = str(base_url).rstrip('/')
+        
+        pdf_url = f"{base_url_str}/{pdf_path}"
+        
+        logger.info(f"Sending PDF via Twilio: {pdf_url} to {to_phone}")
+        
+        # Send message with media via Twilio API
+        # Note: WhatsApp supports PDF files via media_url
+        message = twilio_client.messages.create(
+            from_=from_phone,
+            to=to_phone,
+            body="📄 Here's your study notes PDF!",
+            media_url=[pdf_url]
+        )
+        
+        logger.info(f"PDF sent successfully via Twilio. Message SID: {message.sid}")
+        
+    except Exception as e:
+        logger.error(f"Error sending PDF via Twilio: {e}", exc_info=True)
+        # Try to send a fallback message with the URL
+        try:
+            if settings.public_base_url:
+                base_url_str = settings.public_base_url.rstrip('/')
+            else:
+                base_url_str = str(base_url).rstrip('/')
+            pdf_url = f"{base_url_str}/{pdf_path}"
+            
+            twilio_client.messages.create(
+                from_=from_phone,
+                to=to_phone,
+                body=f"📄 Your PDF is ready! Download it here: {pdf_url}"
+            )
+        except Exception as e2:
+            logger.error(f"Error sending fallback message: {e2}")
+
 @app.get("/")
 async def root():
     """
@@ -48,18 +93,25 @@ async def root():
 @app.post("/whatsapp")
 async def whatsapp_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     From: str = Form(...),
     To: str = Form(...),
     Body: Optional[str] = Form(None),
     MediaUrl0: Optional[str] = Form(None),
     MediaContentType0: Optional[str] = Form(None),
+    MediaUrl1: Optional[str] = Form(None),
+    MediaContentType1: Optional[str] = Form(None),
+    MediaUrl2: Optional[str] = Form(None),
+    MediaContentType2: Optional[str] = Form(None),
+    MediaUrl3: Optional[str] = Form(None),
+    MediaContentType3: Optional[str] = Form(None),
     NumMedia: Optional[str] = Form("0")
 ):
     """
     WhatsApp webhook endpoint to handle incoming messages
     
     This endpoint receives all types of WhatsApp messages (text, images, audio)
-    and processes them accordingly using AI services.
+    and processes them accordingly using AI services. Now supports multiple images.
     """
     try:
         logger.info(f"Received WhatsApp message from {From} to {To}")
@@ -70,37 +122,68 @@ async def whatsapp_webhook(
         response = MessagingResponse()
         
         # Check if there's media attached
-        if MediaUrl0 and MediaContentType0:
-            logger.info(f"Processing media: {MediaContentType0}")
+        num_media = int(NumMedia) if NumMedia else 0
+        
+        if num_media > 0:
+            # Collect all image URLs (Twilio supports up to 10 media items, we'll handle up to 4)
+            image_urls = []
+            media_types = []
             
-            # Handle image files
-            if MediaContentType0.startswith('image/'):
-                logger.info("Processing image file")
-                ai_response = ai_processor.extract_text_from_image(MediaUrl0, From)
+            # Get form data to access all media fields dynamically
+            form_data = await request.form()
+            
+            # Check all possible media slots (Twilio uses MediaUrl0, MediaUrl1, etc.)
+            for i in range(min(num_media, 4)):  # Support up to 4 images
+                media_url = form_data.get(f"MediaUrl{i}")
+                media_type = form_data.get(f"MediaContentType{i}")
+                
+                if media_url and media_type:
+                    media_types.append(media_type)
+                    if media_type.startswith('image/'):
+                        image_urls.append(media_url)
+                        logger.info(f"Found image {i+1}: {media_url}")
+            
+            if image_urls:
+                logger.info(f"Processing {len(image_urls)} image file(s)")
+                # Use the first image URL as primary, pass others as additional
+                primary_url = image_urls[0]
+                additional_urls = image_urls[1:] if len(image_urls) > 1 else None
+                
+                ai_response = ai_processor.extract_text_from_image(
+                    primary_url, 
+                    From, 
+                    image_urls=additional_urls
+                )
                 
                 if ai_response.get("pdf_path"):
-                    # Construct the full, public URL for the PDF
-                    # request.base_url gives you https://<your-ngrok-url>/
-                    pdf_url = f"{str(request.base_url)}{ai_response['pdf_path']}"
-                    
+                    # Send the text message first
                     response.message(ai_response['message'])
-                    response.message(pdf_url) # Send the link as a separate message
+                    
+                    # Schedule PDF to be sent via Twilio API after webhook response
+                    # This runs in the background after the response is sent
+                    background_tasks.add_task(
+                        send_pdf_via_twilio,
+                        From, 
+                        To,
+                        ai_response['pdf_path'],
+                        request.base_url
+                    )
                 else:
                     # Send the error message if PDF generation failed
                     response.message(ai_response['message'])
             
-            # Handle audio files
-            elif MediaContentType0.startswith('audio/'):
+            # Handle audio files (single audio for now)
+            elif MediaContentType0 and MediaContentType0.startswith('audio/'):
                 logger.info("Processing audio file")
                 ai_response = ai_processor.transcribe_audio(MediaUrl0, From)
                 response.message(ai_response['message'])
             
             # Handle other media types
             else:
-                logger.warning(f"Unsupported media type: {MediaContentType0}")
+                logger.warning(f"Unsupported media type(s): {media_types}")
                 response.message(
-                    f"I received a {MediaContentType0} file, but I can only process images and audio files at the moment. "
-                    "Please send me an image of your notes or an audio recording, and I'll help you with your studies!"
+                    f"I received {num_media} media file(s), but I can only process images and audio files at the moment. "
+                    "Please send me image(s) of your notes or an audio recording, and I'll help you with your studies!"
                 )
         
         # Handle text messages
@@ -113,12 +196,14 @@ async def whatsapp_webhook(
         else:
             logger.warning("Received empty message")
             response.message(
-                "Hi! I'm your AI study assistant. I can help you with:\n\n"
-                "Extract text from images of your notes\n"
-                "Transcribe your audio recordings\n"
-                "Answer questions about your study materials\n"
-                "Create summaries and practice quizzes\n\n"
-                "Just send me a text message, image, or audio recording to get started!"
+                "Hi! I'm Cortexa, your AI assistant! 🤖\n\n"
+                "I can help you with:\n"
+                "📸 Extract text from images (supports multiple images!)\n"
+                "🎤 Transcribe audio recordings\n"
+                "❓ Answer ANY questions (study-related or general)\n"
+                "📝 Create visual study notes with mind maps\n"
+                "🧠 Generate summaries and practice quizzes\n\n"
+                "Just send me a text message, image(s), or audio recording to get started!"
             )
         
         # Log the response
@@ -131,7 +216,7 @@ async def whatsapp_webhook(
         )
         
     except Exception as e:
-        logger.error(f"Error processing WhatsApp message: {e}")
+        logger.error(f"Error processing WhatsApp message: {e}", exc_info=True)
         
         # Send error message to user
         error_response = MessagingResponse()

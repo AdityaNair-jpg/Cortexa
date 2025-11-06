@@ -22,4 +22,6 @@ aiofiles==23.2.1
 httpx==0.24.1
 celery==5.3.4
 structlog==23.2.0
-fpdf2==2.7.7
+reportlab==4.0.7
+matplotlib==3.8.2
+networkx==3.2.1
