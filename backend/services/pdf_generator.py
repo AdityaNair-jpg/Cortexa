@@ -21,6 +21,9 @@ import json
 import matplotlib
 matplotlib.use('Agg')  # Use non-interactive backend for server environments
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Rectangle, Circle, Ellipse
+import matplotlib.patheffects as path_effects
 import networkx as nx
 from core.config import settings
 
@@ -139,8 +142,8 @@ class PDFGenerator:
             # Build PDF content
             story = []
             
-            # Add title
-            story.append(Paragraph("📚 Study Notes", self.title_style))
+            # Add title (removed emoji to avoid font warnings)
+            story.append(Paragraph("Study Notes", self.title_style))
             story.append(Spacer(1, 0.2*inch))
             
             # Parse and add structured content
@@ -153,13 +156,33 @@ class PDFGenerator:
                 story.append(Spacer(1, 0.1*inch))
                 self._add_images(story, image_urls)
             
-            # Generate and add mind map
-            story.append(PageBreak())
-            story.append(Paragraph("🗺️ Concept Mind Map", self.heading_style))
-            story.append(Spacer(1, 0.1*inch))
-            mind_map_path = self._create_mind_map(content)
-            if mind_map_path:
-                story.append(Image(mind_map_path, width=7*inch, height=9*inch))
+            # Generate and add visual diagrams
+            diagrams = self._create_visual_diagrams(content)
+            
+            if diagrams:
+                story.append(PageBreak())
+                story.append(Paragraph("📊 Visual Diagrams", self.heading_style))
+                story.append(Spacer(1, 0.1*inch))
+                
+                # Add mind map
+                if diagrams.get('mind_map'):
+                    story.append(Paragraph("Concept Mind Map", self.subheading_style))
+                    story.append(Spacer(1, 0.05*inch))
+                    story.append(Image(diagrams['mind_map'], width=7*inch, height=5*inch))
+                    story.append(Spacer(1, 0.2*inch))
+                
+                # Add flowchart
+                if diagrams.get('flowchart'):
+                    story.append(Paragraph("Process Flowchart", self.subheading_style))
+                    story.append(Spacer(1, 0.05*inch))
+                    story.append(Image(diagrams['flowchart'], width=7*inch, height=5*inch))
+                    story.append(Spacer(1, 0.2*inch))
+                
+                # Add concept hierarchy
+                if diagrams.get('hierarchy'):
+                    story.append(Paragraph("Concept Hierarchy", self.subheading_style))
+                    story.append(Spacer(1, 0.05*inch))
+                    story.append(Image(diagrams['hierarchy'], width=7*inch, height=5*inch))
             
             # Build PDF
             doc.build(story, onFirstPage=self._add_header_footer, onLaterPages=self._add_header_footer)
@@ -357,60 +380,321 @@ class PDFGenerator:
                 logger.error(f"Error adding image {i}: {e}")
                 story.append(Paragraph(f"Image {i}: Could not load", self.styles['Normal']))
     
-    def _create_mind_map(self, content: str) -> Optional[str]:
-        """Create a visual mind map from content"""
+    def _create_visual_diagrams(self, content: str) -> Dict[str, Optional[str]]:
+        """Create multiple visual diagrams from content"""
+        diagrams = {}
+        
+        # Create mind map
+        diagrams['mind_map'] = self._create_enhanced_mind_map(content)
+        
+        # Create flowchart
+        diagrams['flowchart'] = self._create_flowchart(content)
+        
+        # Create concept hierarchy
+        diagrams['hierarchy'] = self._create_concept_hierarchy(content)
+        
+        return {k: v for k, v in diagrams.items() if v is not None}
+    
+    def _create_enhanced_mind_map(self, content: str) -> Optional[str]:
+        """Create an enhanced visual mind map with better styling"""
         try:
-            # Extract key concepts
+            # Extract key concepts and relationships
             concepts = self._extract_concepts(content)
             if len(concepts) < 2:
                 return None
             
-            # Create network graph
-            G = nx.Graph()
+            # Create directed graph for better hierarchy
+            G = nx.DiGraph()
             
             # Add central node
             central = concepts[0] if concepts else "Main Topic"
-            G.add_node(central, size=2000, color='#1a237e')
+            G.add_node(central, level=0, color='#1a237e', size=3000)
             
-            # Add other concepts
-            for i, concept in enumerate(concepts[1:6]):  # Limit to 5 additional concepts
-                G.add_node(concept, size=1000, color='#3949ab')
+            # Add primary concepts (level 1)
+            primary_concepts = concepts[1:min(4, len(concepts))]
+            for i, concept in enumerate(primary_concepts):
+                G.add_node(concept, level=1, color='#3949ab', size=2000)
                 G.add_edge(central, concept)
             
-            # Create figure
-            plt.figure(figsize=(10, 8), facecolor='white')
-            ax = plt.gca()
-            ax.set_facecolor('white')
+            # Add secondary concepts (level 2) if available
+            if len(concepts) > 4:
+                secondary_concepts = concepts[4:min(8, len(concepts))]
+                for i, sec_concept in enumerate(secondary_concepts):
+                    if i < len(primary_concepts):
+                        parent = primary_concepts[i]
+                        G.add_node(sec_concept, level=2, color='#5c6bc0', size=1500)
+                        G.add_edge(parent, sec_concept)
             
-            # Use spring layout
-            pos = nx.spring_layout(G, k=2, iterations=50)
+            # Create figure with better styling
+            fig, ax = plt.subplots(figsize=(12, 8), facecolor='white')
+            ax.set_facecolor('#fafafa')
             
-            # Draw nodes
-            node_colors = [G.nodes[node].get('color', '#3949ab') for node in G.nodes()]
-            node_sizes = [G.nodes[node].get('size', 1000) for node in G.nodes()]
+            # Use hierarchical layout
+            pos = self._hierarchical_layout(G, central)
             
-            nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=node_sizes, alpha=0.9, ax=ax)
+            # Draw edges with gradient
+            for (u, v) in G.edges():
+                x1, y1 = pos[u]
+                x2, y2 = pos[v]
+                ax.plot([x1, x2], [y1, y2], 'k-', alpha=0.3, linewidth=2, zorder=1)
             
-            # Draw edges
-            nx.draw_networkx_edges(G, pos, width=2, alpha=0.5, edge_color='gray', ax=ax)
+            # Draw nodes with better styling
+            for node in G.nodes():
+                level = G.nodes[node].get('level', 0)
+                color = G.nodes[node].get('color', '#3949ab')
+                size = G.nodes[node].get('size', 1000)
+                x, y = pos[node]
+                
+                # Draw node with shadow effect
+                circle = Circle((x, y), radius=size/2000, color=color, 
+                              alpha=0.9, zorder=2, edgecolor='white', linewidth=2)
+                ax.add_patch(circle)
+                
+                # Add label with better formatting
+                label = self._truncate_label(node, max_length=20)
+                text = ax.text(x, y, label, ha='center', va='center', 
+                             fontsize=9 if level == 0 else 8, fontweight='bold',
+                             color='white', zorder=3)
+                text.set_path_effects([path_effects.withStroke(linewidth=2, foreground='black', alpha=0.3)])
             
-            # Draw labels
-            labels = {node: self._truncate_label(node, max_length=15) for node in G.nodes()}
-            nx.draw_networkx_labels(G, pos, labels, font_size=10, font_weight='bold', ax=ax)
-            
-            plt.axis('off')
+            ax.set_xlim(-1.5, 1.5)
+            ax.set_ylim(-1.2, 1.2)
+            ax.axis('off')
             plt.tight_layout()
             
             # Save mind map
             mind_map_path = os.path.join("static", "temp", f"mindmap_{uuid.uuid4().hex[:8]}.png")
-            plt.savefig(mind_map_path, dpi=150, bbox_inches='tight', facecolor='white')
+            plt.savefig(mind_map_path, dpi=200, bbox_inches='tight', facecolor='white', 
+                       edgecolor='none', pad_inches=0.1)
             plt.close()
             
             return mind_map_path
             
         except Exception as e:
-            logger.error(f"Error creating mind map: {e}")
+            logger.error(f"Error creating enhanced mind map: {e}")
             return None
+    
+    def _hierarchical_layout(self, G: nx.DiGraph, root: str) -> Dict:
+        """Create a hierarchical layout for the graph"""
+        pos = {}
+        
+        # Position root at center top
+        pos[root] = (0, 1)
+        
+        # Get children of root
+        children = list(G.successors(root))
+        if not children:
+            return pos
+        
+        # Position level 1 nodes in a horizontal row below root
+        n_children = len(children)
+        if n_children == 1:
+            pos[children[0]] = (0, 0.3)
+        else:
+            spacing = 1.6 / (n_children - 1) if n_children > 1 else 0
+            start_x = -0.8
+            for i, child in enumerate(children):
+                pos[child] = (start_x + i * spacing, 0.3)
+        
+        # Position level 2 nodes below their parents
+        for parent in children:
+            grandchildren = list(G.successors(parent))
+            for j, grandchild in enumerate(grandchildren):
+                parent_x, parent_y = pos[parent]
+                offset = (j - len(grandchildren)/2) * 0.3
+                pos[grandchild] = (parent_x + offset, -0.3)
+        
+        return pos
+    
+    def _create_flowchart(self, content: str) -> Optional[str]:
+        """Create a process flowchart from content"""
+        try:
+            # Extract process steps or sequential concepts
+            steps = self._extract_process_steps(content)
+            if len(steps) < 2:
+                return None
+            
+            fig, ax = plt.subplots(figsize=(12, 8), facecolor='white')
+            ax.set_facecolor('#fafafa')
+            
+            # Create flowchart boxes
+            box_width = 2.0
+            box_height = 0.6
+            spacing = 1.2
+            
+            # Draw process boxes
+            boxes = []
+            for i, step in enumerate(steps[:6]):  # Limit to 6 steps
+                y_pos = 1.5 - i * spacing
+                x_pos = 0
+                
+                # Create rounded rectangle
+                box = FancyBboxPatch(
+                    (x_pos - box_width/2, y_pos - box_height/2),
+                    box_width, box_height,
+                    boxstyle="round,pad=0.1",
+                    facecolor='#3949ab',
+                    edgecolor='#1a237e',
+                    linewidth=2,
+                    alpha=0.9
+                )
+                ax.add_patch(box)
+                boxes.append((x_pos, y_pos, step))
+                
+                # Add arrow between boxes (except last)
+                if i < len(steps) - 1:
+                    arrow = FancyArrowPatch(
+                        (x_pos, y_pos - box_height/2),
+                        (x_pos, y_pos - spacing + box_height/2),
+                        arrowstyle='->',
+                        mutation_scale=20,
+                        color='#666',
+                        linewidth=2,
+                        zorder=1
+                    )
+                    ax.add_patch(arrow)
+                
+                # Add text
+                label = self._truncate_label(step, max_length=25)
+                text = ax.text(x_pos, y_pos, label, ha='center', va='center',
+                             fontsize=9, fontweight='bold', color='white',
+                             wrap=True)
+            
+            # Add start and end indicators
+            start_circle = Circle((0, 2.1), 0.15, color='#4caf50', zorder=2)
+            end_circle = Circle((0, 1.5 - (len(steps)-1) * spacing - 0.5), 0.15, color='#f44336', zorder=2)
+            ax.add_patch(start_circle)
+            ax.add_patch(end_circle)
+            
+            ax.text(0, 2.1, 'START', ha='center', va='center', fontsize=8, 
+                   fontweight='bold', color='white')
+            ax.text(0, 1.5 - (len(steps)-1) * spacing - 0.5, 'END', ha='center', 
+                   va='center', fontsize=8, fontweight='bold', color='white')
+            
+            ax.set_xlim(-2, 2)
+            ax.set_ylim(1.5 - (len(steps)-1) * spacing - 1, 2.5)
+            ax.axis('off')
+            plt.tight_layout()
+            
+            flowchart_path = os.path.join("static", "temp", f"flowchart_{uuid.uuid4().hex[:8]}.png")
+            plt.savefig(flowchart_path, dpi=200, bbox_inches='tight', facecolor='white',
+                       edgecolor='none', pad_inches=0.1)
+            plt.close()
+            
+            return flowchart_path
+            
+        except Exception as e:
+            logger.error(f"Error creating flowchart: {e}")
+            return None
+    
+    def _create_concept_hierarchy(self, content: str) -> Optional[str]:
+        """Create a hierarchical concept diagram"""
+        try:
+            concepts = self._extract_concepts(content)
+            if len(concepts) < 3:
+                return None
+            
+            fig, ax = plt.subplots(figsize=(12, 8), facecolor='white')
+            ax.set_facecolor('#fafafa')
+            
+            # Organize concepts hierarchically
+            main_concept = concepts[0]
+            sub_concepts = concepts[1:min(5, len(concepts))]
+            
+            # Draw main concept at top
+            main_box = FancyBboxPatch(
+                (-1, 1.5), 2, 0.5,
+                boxstyle="round,pad=0.15",
+                facecolor='#1a237e',
+                edgecolor='#0d47a1',
+                linewidth=3,
+                alpha=0.95
+            )
+            ax.add_patch(main_box)
+            ax.text(0, 1.75, self._truncate_label(main_concept, 20), 
+                   ha='center', va='center', fontsize=11, fontweight='bold', 
+                   color='white')
+            
+            # Draw sub-concepts in a row
+            n_subs = len(sub_concepts)
+            width_per_box = 3.0 / max(n_subs, 1)
+            
+            for i, sub_concept in enumerate(sub_concepts):
+                x_pos = -1.5 + i * width_per_box + width_per_box/2
+                y_pos = 0.5
+                
+                sub_box = FancyBboxPatch(
+                    (x_pos - 0.4, y_pos - 0.25), 0.8, 0.5,
+                    boxstyle="round,pad=0.1",
+                    facecolor='#3949ab',
+                    edgecolor='#283593',
+                    linewidth=2,
+                    alpha=0.9
+                )
+                ax.add_patch(sub_box)
+                ax.text(x_pos, y_pos, self._truncate_label(sub_concept, 15),
+                       ha='center', va='center', fontsize=9, fontweight='bold',
+                       color='white')
+                
+                # Draw connecting line
+                line = FancyArrowPatch(
+                    (0, 1.5),
+                    (x_pos, 0.75),
+                    arrowstyle='->',
+                    mutation_scale=15,
+                    color='#666',
+                    linewidth=1.5,
+                    alpha=0.6,
+                    connectionstyle="arc3,rad=0.2"
+                )
+                ax.add_patch(line)
+            
+            ax.set_xlim(-2, 2)
+            ax.set_ylim(0, 2.2)
+            ax.axis('off')
+            plt.tight_layout()
+            
+            hierarchy_path = os.path.join("static", "temp", f"hierarchy_{uuid.uuid4().hex[:8]}.png")
+            plt.savefig(hierarchy_path, dpi=200, bbox_inches='tight', facecolor='white',
+                       edgecolor='none', pad_inches=0.1)
+            plt.close()
+            
+            return hierarchy_path
+            
+        except Exception as e:
+            logger.error(f"Error creating concept hierarchy: {e}")
+            return None
+    
+    def _extract_process_steps(self, content: str) -> List[str]:
+        """Extract process steps or sequential information from content"""
+        steps = []
+        
+        # Look for numbered lists
+        numbered = re.findall(r'^\d+[\.\)]\s+(.+)$', content, re.MULTILINE)
+        if numbered:
+            steps.extend([s.strip() for s in numbered[:6]])
+        
+        # Look for step indicators
+        step_patterns = [
+            r'step\s+\d+[:\-]\s*(.+)',
+            r'first[:\-]\s*(.+)',
+            r'then[:\-]\s*(.+)',
+            r'next[:\-]\s*(.+)',
+            r'finally[:\-]\s*(.+)'
+        ]
+        
+        for pattern in step_patterns:
+            matches = re.findall(pattern, content, re.IGNORECASE)
+            steps.extend([m.strip() for m in matches[:3]])
+        
+        # If no steps found, use key concepts as steps
+        if not steps:
+            concepts = self._extract_concepts(content)
+            steps = concepts[:6]
+        
+        # Clean and limit
+        steps = [s for s in steps if len(s) > 5 and len(s) < 50]
+        return steps[:6]
     
     def _extract_concepts(self, content: str) -> List[str]:
         """Extract key concepts from content"""

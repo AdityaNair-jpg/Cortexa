@@ -22,7 +22,8 @@ class Settings(BaseSettings):
     
     # Gemini Configuration
     gemini_api_key: str = Field(..., env="GEMINI_API_KEY")
-    gemini_model: str = "gemini-2.5-pro"
+    # Using Flash model for better rate limits (15 req/min vs 2 req/min for Pro on free tier)
+    gemini_model: str = "gemini-2.5-flash"
     
     # Database
     database_url: str = Field("sqlite:///./study_assistant.db", env="DATABASE_URL")

@@ -109,25 +109,41 @@ class AIProcessor:
             
             # Collect all extracted texts if multiple images
             all_extracted_texts = [extracted_text] if extracted_text.strip() else []
+            logger.info(f"Extracted {len(extracted_text)} characters from first image")
             
             # Process additional images if provided
             if image_urls:
-                for img_url in image_urls:
+                logger.info(f"Processing {len(image_urls)} additional image(s)")
+                for idx, img_url in enumerate(image_urls, start=2):
                     try:
+                        logger.info(f"Downloading image {idx}/{len(image_urls)+1}: {img_url[:50]}...")
                         img_response = requests.get(
                             img_url,
-                            auth=(settings.twilio_account_sid, settings.twilio_auth_token)
+                            auth=(settings.twilio_account_sid, settings.twilio_auth_token),
+                            timeout=30
                         )
                         img_response.raise_for_status()
                         img = Image.open(BytesIO(img_response.content))
                         img_text = pytesseract.image_to_string(img)
                         if img_text.strip():
                             all_extracted_texts.append(img_text)
+                            logger.info(f"Extracted {len(img_text)} characters from image {idx}")
+                        else:
+                            logger.warning(f"No text found in image {idx}")
                     except Exception as e:
-                        logger.warning(f"Error processing additional image {img_url}: {e}")
+                        logger.error(f"Error processing additional image {idx} ({img_url[:50]}...): {e}")
             
-            # Combine all extracted texts
-            combined_text = "\n\n---\n\n".join(all_extracted_texts)
+            logger.info(f"Total images processed: {len(all_extracted_texts)}")
+            
+            # Combine all extracted texts with clear separators
+            if all_extracted_texts:
+                combined_text = "\n\n" + "="*50 + f"\nIMAGE 1\n" + "="*50 + "\n\n" + all_extracted_texts[0]
+                for idx, text in enumerate(all_extracted_texts[1:], start=2):
+                    combined_text += "\n\n" + "="*50 + f"\nIMAGE {idx}\n" + "="*50 + "\n\n" + text
+            else:
+                combined_text = ""
+            
+            logger.info(f"Combined text length: {len(combined_text)} characters from {len(all_extracted_texts)} image(s)")
             
             if not combined_text.strip():
                 return {"message": "I couldn't find any text in the image(s) you sent. Please try taking clearer pictures! 📸"}
@@ -248,7 +264,7 @@ class AIProcessor:
 
                 **Content**:
                 ---
-                {content[:3000]}  # Limit content length
+                {content[:8000]}  # Increased limit for multiple images
                 ---
 
                 **CRITICAL INSTRUCTIONS**:
