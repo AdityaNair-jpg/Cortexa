@@ -168,6 +168,7 @@ async def whatsapp_webhook(
                         ai_response['pdf_path'],
                         request.base_url
                     )
+
                 else:
                     # Send the error message if PDF generation failed
                     response.message(ai_response['message'])
@@ -208,6 +209,7 @@ async def whatsapp_webhook(
         
         # Log the response
         logger.info("Sending TwiML response back to Twilio")
+        logger.info(f"TwiML Response: {str(response)}")
         
         # Return TwiML response
         return Response(
