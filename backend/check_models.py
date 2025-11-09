@@ -8,7 +8,7 @@ print("=" * 70)
 print("GEMINI API DIAGNOSTIC")
 print("=" * 70)
 
-# Check library version
+# Check library version 
 import importlib.metadata
 try:
     version = importlib.metadata.version('google-generativeai')
@@ -16,7 +16,7 @@ try:
 except:
     print("\n✗ Could not determine library version")
 
-# Configure API
+# API Configuration
 api_key = os.getenv('GEMINI_API_KEY')
 print(f"✓ API key loaded: {api_key[:10]}..." if api_key else "✗ No API key found")
 
